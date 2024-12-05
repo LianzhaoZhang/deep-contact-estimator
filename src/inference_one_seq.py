@@ -143,7 +143,7 @@ def main():
     parser.add_argument('--config_name', type=str, default=os.path.dirname(os.path.abspath(__file__))+'/../config/inference_one_seq_params.yaml')
     args = parser.parse_args()
 
-    config = yaml.load(open(args.config_name))
+    config = yaml.load(open(args.config_name),Loader=yaml.FullLoader)
     
     dataset = contact_dataset(data_path=config['data_path'],\
                                 label_path=config['label_path'],\

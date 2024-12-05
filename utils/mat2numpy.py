@@ -83,6 +83,92 @@ def mat2numpy_one_seq(data_pth, save_pth):
 
         print("Done!")
 
+def csv2numpy_one_seq(data_path, save_path):
+    """
+    从CSV文件加载数据并生成numpy文件，不分割为训练/验证/测试集。
+    
+    输入:
+    - data_path: CSV数据文件路径
+    - save_path: numpy文件保存目录
+    
+    数据应包含:
+    - 关节位置、速度和力矩 (每条腿3个关节)
+    - IMU数据 (加速度和角速度)
+    - 接触状态数据 (4条腿的接触状态)
+    """
+    print("Reading CSV file...")
+    data_path = data_path + 'merged_data_raw.csv'
+    df = pd.read_csv(data_path)
+    
+    # 添加序列ID列
+    print("Processing time sequences...")
+    df['time_diff'] = df['Time'].diff()
+    sequence_starts = (df['time_diff'] > 0.002) | (df['time_diff'].isna())
+    df['sequence_id'] = sequence_starts.cumsum()
+    
+    grouped = df.groupby(['sequence_id', 'Time'])
+    
+    # 初始化数据列表
+    all_data = []
+    all_labels = []
+    
+    print("Processing groups...")
+    for (seq_id, time), group in grouped:
+        if len(group) != 4:
+            print(f"Warning: Sequence {seq_id}, Timestamp {time} has {len(group)} entries instead of 4")
+            continue
+            
+        # 确保腿的顺序为 RF, LF, RH, LH
+        group = group.sort_values('Leg_ID')
+        
+        # 提取特征
+        positions = group[['HAA_position', 'HFE_position', 'KFE_position']].values.flatten()
+        velocities = group[['HAA_velocity', 'HFE_velocity', 'KFE_velocity']].values.flatten()
+        torques = group[['HAA_torque', 'HFE_torque', 'KFE_torque']].values.flatten()
+        
+        # 获取IMU数据
+        imu_data = group[['IMU_linear_acceleration_x', 'IMU_linear_acceleration_y', 
+                         'IMU_linear_acceleration_z', 'IMU_angular_velocity_x',
+                         'IMU_angular_velocity_y', 'IMU_angular_velocity_z']].iloc[0].values
+        
+        # 获取参考接触状态
+        contact_ref = group['Contact_State_Reference'].values
+        
+        # 合并特征
+        features = np.concatenate([
+            positions,      # 12个关节位置
+            velocities,    # 12个关节速度
+            torques,       # 12个关节力矩
+            imu_data,      # 6个IMU数据
+            contact_ref    # 4个参考接触状态
+        ])
+        
+        all_data.append(features)
+        
+        # 处理标签
+        contact_measured = group['Contact_State_Measured'].values.reshape(1, -1)
+        label = binary2decimal(contact_measured)
+        all_labels.append(label.item())
+    
+    # 转换为numpy数组
+    all_data = np.array(all_data)
+    all_labels = np.array(all_labels).reshape(-1, 1)
+    
+    # 生成文件名
+    base_filename = "sequence_data"
+    
+    print(f"Saving data to: {os.path.join(save_path, base_filename)}.npy")
+    
+    # 保存数据
+    np.save(os.path.join(save_path, f"{base_filename}.npy"), all_data)
+    np.save(os.path.join(save_path, f"{base_filename}_label.npy"), all_labels)
+    # Save to CSV file
+    data_df = pd.DataFrame(all_data)
+    data_df['label'] = all_labels
+    data_df.to_csv(os.path.join(save_path, f"{base_filename}.csv"), index=False)
+    
+    print(f"Generated {len(all_data)} samples")
+    print("Done!")
 
 def mat2numpy_split(data_pth, save_pth, train_ratio=0.7, val_ratio=0.15):
     """
@@ -382,7 +468,8 @@ def main():
         # mat2numpy_split(config['mat_folder'],config['save_path'],config['train_ratio'],config['val_ratio'])
         csv2numpy_split(config['csv_path'],config['csv_save_path'],config['train_ratio'],config['val_ratio'])
     elif config['mode']=='inference':
-        mat2numpy_one_seq(config['mat_folder'],config['save_path'])
+        # mat2numpy_one_seq(config['mat_folder'],config['save_path'])
+        csv2numpy_one_seq(config['csv_path'],config['csv_save_path'])
     elif config['mode']=='mat2lcm':
         mat2lcm(config)
     
