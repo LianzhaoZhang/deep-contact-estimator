@@ -8,7 +8,7 @@ class contact_cnn(nn.Module):
     def __init__(self):
         super(contact_cnn, self).__init__()
         self.block1 = nn.Sequential(
-            nn.Conv1d(in_channels=54,
+            nn.Conv1d(in_channels=46,
                       out_channels=64,
                       kernel_size=3,
                       stride=1,

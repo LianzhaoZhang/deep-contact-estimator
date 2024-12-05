@@ -1,5 +1,5 @@
-data_folder: "/home/justin/data/contact_data/train/numpy/"
-model_load_path: "/home/justin/code/deep-contact-estimator/results/0913_auto_contact_best_val_loss.pt"
+data_folder: "/home/lianzhao/deep-contact-estimator/data/csv/"
+model_load_path: "/home/lianzhao/deep-contact-estimator/model/model_best_val_loss.pt"
 # model_load_path: "/home/justin/code/deep-contact-estimator/results/0616_2blocks_best_val_loss.pt"
 
 # data params
@@ -9,5 +9,4 @@ window_size: 150
 batch_size: 30
 
 save_to_mat: False
-mat_save_path: "/home/justin/code/deep-contact-estimator/results/0913_auto_contact_best_val_loss.mat"
-
+mat_save_path: "/home/lianzhao/deep-contact-estimator/model/model_best_val_loss.mat"

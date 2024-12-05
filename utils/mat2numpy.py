@@ -4,13 +4,14 @@ import glob
 import sys
 sys.path.append('.')
 import numpy as np
+import pandas as pd
 import scipy.io as sio
 # import matplotlib.pyplot as plt
 import math
 import yaml
 
-import lcm
-from lcm_types.python import contact_t, leg_control_data_lcmt, microstrain_lcmt
+# import lcm
+# from lcm_types.python import contact_t, leg_control_data_lcmt, microstrain_lcmt
 import time
 
 def mat2numpy_one_seq(data_pth, save_pth):
@@ -195,11 +196,132 @@ def mat2numpy_split(data_pth, save_pth, train_ratio=0.7, val_ratio=0.15):
 
     print("Done!")
     # return data
+    
+def csv2numpy_split(data_path, save_path, train_ratio=0.7, val_ratio=0.15):
+    print("Reading CSV file...")
+    data_path = data_path + 'merged_data_raw.csv'
+    df = pd.read_csv(data_path)
+    
+    # 添加序列ID列
+    print("Processing time sequences...")
+    df['time_diff'] = df['Time'].diff()
+    # 当时间差大于正常采样周期的2倍时认为是新的序列开始
+    # 假设正常采样周期约为0.001秒，这里使用0.002秒作为阈值
+    sequence_starts = (df['time_diff'] > 0.002) | (df['time_diff'].isna())
+    df['sequence_id'] = sequence_starts.cumsum()
+    
+    grouped = df.groupby(['sequence_id', 'Time'])
+
+    # 初始化存储所有重组后数据的列表
+    all_data = []
+    all_labels = []
+    
+    print("Processing groups...")
+    print_flag = True
+    count = 0
+    for (seq_id, time), group in grouped:
+        count += 1
+        if len(group) != 4:  # 确保每个时间戳有4条腿的数据
+            print(f"Warning: Sequence {seq_id}, Timestamp {time} has {len(group)} entries instead of 4")
+            continue
+            
+        # 确保腿的顺序为 RF, LF, RH, LH
+        group = group.sort_values('Leg_ID')
+        
+        # 提取特征
+        positions = group[['HAA_position', 'HFE_position', 'KFE_position']].values.flatten()
+        velocities = group[['HAA_velocity', 'HFE_velocity', 'KFE_velocity']].values.flatten()
+        torques = group[['HAA_torque', 'HFE_torque', 'KFE_torque']].values.flatten()
+        
+        # 获取IMU数据(每个时间戳的4行数据都相同，取第一行即可)
+        imu_data = group[['IMU_linear_acceleration_x', 'IMU_linear_acceleration_y', 
+                            'IMU_linear_acceleration_z', 'IMU_angular_velocity_x',
+                            'IMU_angular_velocity_y', 'IMU_angular_velocity_z']].iloc[0].values
+        
+        # 获取接触状态
+        contact_ref = group['Contact_State_Reference'].values
+        
+        # 合并所有特征
+        features = np.concatenate([
+            positions,      # 12个关节位置
+            velocities,    # 12个关节速度
+            torques,       # 12个关节力矩
+            imu_data,      # 6个IMU数据
+            contact_ref   # 4个参考接触状态
+        ])
+        
+        all_data.append(features)
+        
+        # 将测量的接触状态转换为二进制标签
+        contact_measured = group['Contact_State_Measured'].values.reshape(1, -1)
+        label = binary2decimal(contact_measured)
+        
+        all_labels.append(label.item())
+        
+        # if (print_flag and count == 1000):
+        #     print_flag = False
+        #     print("contact_measured shape:", contact_measured.shape)
+        #     print("contact_measured values:", contact_measured)
+        #     print("all_label shape:", len(all_labels))
+        
+    # 转换为numpy数组
+    all_data = np.array(all_data)
+    all_labels = np.array(all_labels)
+    
+    print("all_data shape:", all_data.shape)
+    print("all_labels shape:", all_labels.shape)
+
+    # 分割数据集
+    num_samples = len(all_data)
+    num_train = 73578
+    num_val = 15766
+
+    # 随机打乱数据
+    indices = np.random.permutation(num_samples)
+    all_data = all_data[indices]
+    all_labels = all_labels[indices]
+
+    # 分割数据集
+    train_data = all_data[:num_train]
+    val_data = all_data[num_train:num_train+num_val]
+    test_data = all_data[num_train+num_val:]
+
+    train_label = all_labels[:num_train]
+    val_label = all_labels[num_train:num_train+num_val]
+    test_label = all_labels[num_train+num_val:]
+    
+    # 保存数据
+    print("Saving data...")
+    np.save(os.path.join(save_path, "train.npy"), train_data)
+    np.save(os.path.join(save_path, "val.npy"), val_data)
+    np.save(os.path.join(save_path, "test.npy"), test_data)
+    np.save(os.path.join(save_path, "train_label.npy"), train_label)
+    np.save(os.path.join(save_path, "val_label.npy"), val_label)
+    np.save(os.path.join(save_path, "test_label.npy"), test_label)
+    # 保存为CSV文件
+    train_df = pd.DataFrame(train_data)
+    val_df = pd.DataFrame(val_data)
+    test_df = pd.DataFrame(test_data)
+    train_df['label'] = train_label
+    val_df['label'] = val_label
+    test_df['label'] = test_label
+    train_df.to_csv(os.path.join(save_path, "train.csv"), index=False)
+    val_df.to_csv(os.path.join(save_path, "val.csv"), index=False)
+    test_df.to_csv(os.path.join(save_path, "test.csv"), index=False)
+
+    print(f"Generated {len(train_data)} training samples")
+    print(f"Generated {len(val_data)} validation samples")
+    print(f"Generated {len(test_data)} test samples")
+    print("Done!")
 
 def binary2decimal(a, axis=-1):
+    if a.ndim == 1:
+        a = a.reshape(1, -1)
     return np.right_shift(np.packbits(a, axis=axis), 8 - a.shape[axis]).squeeze()
 
 def mat2lcm(config):
+    import lcm
+    from lcm_types.python import contact_t, leg_control_data_lcmt, microstrain_lcmt
     mat_data = sio.loadmat(config['mat_data_path'])
     log = lcm.EventLog(config['lcm_save_path'], mode='w', overwrite=True)
     
@@ -252,10 +374,13 @@ def main():
     parser.add_argument('--config_name', type=str, default=os.path.dirname(os.path.abspath(__file__))+'/../config/mat2numpy_config.yaml')
     args = parser.parse_args()
 
-    config = yaml.load(open(args.config_name))
+    # config = yaml.load(open(args.config_name))
+    with open(args.config_name, 'r') as file:
+        config = yaml.load(file, Loader=yaml.FullLoader)
 
     if config['mode']=='train':
-        mat2numpy_split(config['mat_folder'],config['save_path'],config['train_ratio'],config['val_ratio'])
+        # mat2numpy_split(config['mat_folder'],config['save_path'],config['train_ratio'],config['val_ratio'])
+        csv2numpy_split(config['csv_path'],config['csv_save_path'],config['train_ratio'],config['val_ratio'])
     elif config['mode']=='inference':
         mat2numpy_one_seq(config['mat_folder'],config['save_path'])
     elif config['mode']=='mat2lcm':

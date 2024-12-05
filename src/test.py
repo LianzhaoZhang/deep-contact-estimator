@@ -118,7 +118,7 @@ def main():
     parser.add_argument('--config_name', type=str, default=os.path.dirname(os.path.abspath(__file__))+'/../config/test_params.yaml')
     args = parser.parse_args()
 
-    config = yaml.load(open(args.config_name))
+    config = yaml.load(open(args.config_name), Loader=yaml.FullLoader)
 
     test_data = contact_dataset(data_path=config['data_folder']+"test.npy",\
                                 label_path=config['data_folder']+"test_label.npy",\

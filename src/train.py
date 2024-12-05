@@ -211,7 +211,7 @@ def main():
     parser.add_argument('--config_name', type=str, default=os.path.dirname(os.path.abspath(__file__))+'/../config/network_params.yaml')
     args = parser.parse_args()
 
-    config = yaml.load(open(args.config_name))
+    config = yaml.load(open(args.config_name),Loader=yaml.FullLoader)
 
     print("Using the following params: ")
     print("-------------path-------------")

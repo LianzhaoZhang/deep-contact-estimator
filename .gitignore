@@ -4,3 +4,8 @@ logs/
 inference_results/
 .vscode
 *.txt
+*.mat
+*.npy
+*.idea
+*.pt
+log/*
